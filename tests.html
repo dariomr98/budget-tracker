@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Tracker – Tests</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:16px;line-height:1.4}
+h1{font-size:1.3rem} #sum{font-weight:700;font-size:1.1rem;margin:8px 0 16px}
+table{border-collapse:collapse;width:100%;font-size:.9rem} td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+.pass{color:#006c10} .fail{color:#c42f30;font-weight:700} code{font-size:.85em;word-break:break-all}
+iframe{display:none}
+</style>
+</head>
+<body>
+<h1>Budget Tracker: automated tests</h1>
+<p>Runs the app's own functions (loaded from <code>index.html?test</code>) against fixed sample data. Nothing is read from or written to Google.</p>
+<div id="sum">Running…</div>
+<table><thead><tr><th>Group</th><th>Test</th><th>Result</th></tr></thead><tbody id="out"></tbody></table>
+<iframe id="app" src="index.html?test"></iframe>
+<script>
+'use strict';
+const results = [];
+function check(group, name, actual, expected){
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  results.push({ group, name, pass: a === e, detail: a === e ? a : `expected ${e}, got ${a}` });
+}
+function ok(group, name, cond, detail){ results.push({ group, name, pass: !!cond, detail: detail || String(!!cond) }); }
+
+function run(BT){
+  const bancomer = { id:'card_bancomer', name:'Bancomer', cutoff_day:3, payment_day:23, payment_window_days:0 };
+  const amex = { id:'card_amex', name:'Amex', cutoff_day:23, payment_day:12, payment_window_days:1 };
+  const sd = (date, card) => BT.statementDates(date, card);
+
+  // ---- Required cash date examples
+  const G1 = 'Cash date: required examples';
+  check(G1, 'Bancomer, Oct 2 → closes Oct 3 → paid Oct 23', sd('2026-10-02', bancomer), { close:'2026-10-03', pay:'2026-10-23' });
+  check(G1, 'Bancomer, Oct 4 → closes Nov 3 → paid Nov 23', sd('2026-10-04', bancomer), { close:'2026-11-03', pay:'2026-11-23' });
+  check(G1, 'Amex, Oct 23 → closes Oct 23 → paid Nov 12', sd('2026-10-23', amex), { close:'2026-10-23', pay:'2026-11-12' });
+  check(G1, 'Amex, Oct 24 → closes Nov 23 → paid Dec 12', sd('2026-10-24', amex), { close:'2026-11-23', pay:'2026-12-12' });
+  check(G1, 'Amex, Nov 24 → closes Dec 23 → paid Jan 12', sd('2026-11-24', amex), { close:'2026-12-23', pay:'2027-01-12' });
+  check(G1, 'Bancomer, Oct 3 (on cutoff day) → closes Oct 3 → paid Oct 23', sd('2026-10-03', bancomer), { close:'2026-10-03', pay:'2026-10-23' });
+
+  // ---- Cutoff on the 31st in short months
+  const c31 = { id:'c31', name:'Cut31', cutoff_day:31, payment_day:20, payment_window_days:0 };
+  const G2 = 'Cash date: cutoff on the 31st';
+  check(G2, 'Feb 15, 2027 → closes Feb 28 → paid Mar 20', sd('2027-02-15', c31), { close:'2027-02-28', pay:'2027-03-20' });
+  check(G2, 'Feb 28, 2027 (last day) → closes Feb 28', sd('2027-02-28', c31), { close:'2027-02-28', pay:'2027-03-20' });
+  check(G2, 'Leap year: Feb 29, 2028 → closes Feb 29, 2028', sd('2028-02-29', c31), { close:'2028-02-29', pay:'2028-03-20' });
+  check(G2, 'Apr 30, 2026 → closes Apr 30 (30-day month)', sd('2026-04-30', c31), { close:'2026-04-30', pay:'2026-05-20' });
+  check(G2, 'Mar 31, 2026 → closes Mar 31', sd('2026-03-31', c31), { close:'2026-03-31', pay:'2026-04-20' });
+  check(G2, 'Jan 31, 2027 → closes Jan 31 → paid Feb 20', sd('2027-01-31', c31), { close:'2027-01-31', pay:'2027-02-20' });
+  const c30pay31 = { id:'x', name:'X', cutoff_day:31, payment_day:31, payment_window_days:0 };
+  check(G2, 'Cutoff 31 & payment 31: Feb 10, 2027 → closes Feb 28 → paid Mar 31', sd('2027-02-10', c30pay31), { close:'2027-02-28', pay:'2027-03-31' });
+
+  // ---- December rolling into January
+  const G3 = 'Cash date: December → January';
+  check(G3, 'Bancomer, Dec 5, 2026 → closes Jan 3 → paid Jan 23, 2027', sd('2026-12-05', bancomer), { close:'2027-01-03', pay:'2027-01-23' });
+  check(G3, 'Amex, Dec 24, 2026 → closes Jan 23 → paid Feb 12, 2027', sd('2026-12-24', amex), { close:'2027-01-23', pay:'2027-02-12' });
+  check(G3, 'Amex, Dec 23, 2026 → closes Dec 23 → paid Jan 12, 2027', sd('2026-12-23', amex), { close:'2026-12-23', pay:'2027-01-12' });
+  check(G3, 'Bancomer, Dec 31, 2026 → closes Jan 3 → paid Jan 23, 2027', sd('2026-12-31', bancomer), { close:'2027-01-03', pay:'2027-01-23' });
+
+  // ---- February
+  const G4 = 'Cash date: February';
+  check(G4, 'Amex, Jan 24, 2027 → closes Feb 23 → paid Mar 12', sd('2027-01-24', amex), { close:'2027-02-23', pay:'2027-03-12' });
+  const pay30 = { id:'p30', name:'P30', cutoff_day:5, payment_day:30, payment_window_days:0 };
+  check(G4, 'Payment day 30 in Feb 2027 → paid Feb 28', sd('2027-02-03', pay30), { close:'2027-02-05', pay:'2027-02-28' });
+  check(G4, 'Payment day 30 in Feb 2028 (leap) → paid Feb 29', sd('2028-01-10', pay30), { close:'2028-02-05', pay:'2028-02-29' });
+  const cut29 = { id:'c29', name:'C29', cutoff_day:29, payment_day:10, payment_window_days:0 };
+  check(G4, 'Cutoff 29 in Feb 2027: Feb 28 → closes Feb 28 → paid Mar 10', sd('2027-02-28', cut29), { close:'2027-02-28', pay:'2027-03-10' });
+  check(G4, 'Cutoff 29: Jan 30, 2027 → closes Feb 28 → paid Mar 10', sd('2027-01-30', cut29), { close:'2027-02-28', pay:'2027-03-10' });
+
+  // ---- Cash date assignment & recalculation
+  const G5 = 'Cash date: per expense';
+  const cards = [ {...bancomer}, {...amex} ];
+  check(G5, 'Debit Card: cash_date = date', BT.computeCashDate({ date:'2026-10-24', payment_method:'Debit Card' }, cards), '2026-10-24');
+  check(G5, 'Cash: cash_date = date', BT.computeCashDate({ date:'2026-10-24', payment_method:'Cash' }, cards), '2026-10-24');
+  check(G5, 'Bank Transfer: cash_date = date', BT.computeCashDate({ date:'2026-10-24', payment_method:'Bank Transfer' }, cards), '2026-10-24');
+  check(G5, 'Credit Card (Amex): Oct 24 → Dec 12', BT.computeCashDate({ date:'2026-10-24', payment_method:'Credit Card', card_id:'card_amex' }, cards), '2026-12-12');
+  check(G5, 'Amex window label', BT.windowLabel(amex), '11–13');
+  check(G5, 'Bancomer window label', BT.windowLabel(bancomer), '23');
+  const exps = [
+    { id:'a', date:'2026-11-02', payment_method:'Credit Card', card_id:'card_bancomer' },
+    { id:'b', date:'2026-11-04', payment_method:'Credit Card', card_id:'card_bancomer' },
+    { id:'c', date:'2026-11-04', payment_method:'Debit Card', card_id:'' },
+  ];
+  exps.forEach(e => e.cash_date = BT.computeCashDate(e, cards));
+  check(G5, 'Before cutoff change', exps.map(e=>e.cash_date), ['2026-11-23','2026-12-23','2026-11-04']);
+  cards[0].cutoff_day = 10;
+  const n = BT.recalcCardExpenses(exps, cards, 'card_bancomer');
+  check(G5, 'Bancomer cutoff 3 → 10 recalculates existing expenses', { n, dates: exps.map(e=>e.cash_date) }, { n:1, dates:['2026-11-23','2026-11-23','2026-11-04'] });
+  cards[0].payment_day = 28;
+  check(G5, 'Payment day 23 → 28 recalculates', { n: BT.recalcCardExpenses(exps, cards, 'card_bancomer'), dates: exps.map(e=>e.cash_date) }, { n:2, dates:['2026-11-28','2026-11-28','2026-11-04'] });
+  check(G5, 'Next card payment from Nov 25 (Amex day 12)', BT.nextCardPayment(amex, '2026-11-25'), '2026-12-12');
+  check(G5, 'Next card payment on the day itself', BT.nextCardPayment(amex, '2026-12-12'), '2026-12-12');
+
+  // ---- Formatting
+  const G6 = 'Format (MXN, es-MX)';
+  check(G6, '1234.56 → $1,234.56', BT.money(1234.56), '$1,234.56');
+  check(G6, '0 → $0.00', BT.money(0), '$0.00');
+  check(G6, '-9653 → -$9,653.00', BT.money(-9653), '-$9,653.00');
+  check(G6, '1234567.891 → $1,234,567.89', BT.money(1234567.891), '$1,234,567.89');
+  check(G6, 'Parse "$1,234.56"', BT.parseMoney('$1,234.56'), 1234.56);
+  ok(G6, 'Date es-MX: 2026-12-12 contains "12" and "dic"', /12/.test(BT.fmtDate('2026-12-12')) && /dic/.test(BT.fmtDate('2026-12-12')), BT.fmtDate('2026-12-12'));
+  check(G6, 'Day + month: 12 de diciembre', BT.dayMonth('2026-12-12'), '12 de diciembre');
+
+  // ---- Income schedule
+  const G7 = 'Income schedule';
+  const salary = { id:'s', source:'Salary', frequency:'Semi-Monthly', payment_days:'15,30', amount:20000, variable:'No', active:'Yes', actuals:{} };
+  const com = { id:'c', source:'Comisiones', frequency:'Monthly', payment_days:'15', amount:5000, variable:'Yes', active:'Yes', actuals:{ '2026-11-15': 6200 } };
+  check(G7, 'Salary Nov 2026: 15 & 30', BT.incomeDates(salary, '2026-11'), ['2026-11-15','2026-11-30']);
+  check(G7, 'Salary Feb 2027: 30th → Feb 28', BT.incomeDates(salary, '2027-02'), ['2027-02-15','2027-02-28']);
+  check(G7, 'Salary Feb 2028 (leap): 30th → Feb 29', BT.incomeDates(salary, '2028-02'), ['2028-02-15','2028-02-29']);
+  check(G7, 'Monthly on 31st in April → Apr 30', BT.incomeDates({ frequency:'Monthly', payment_days:'31' }, '2026-04'), ['2026-04-30']);
+  check(G7, 'Weekly from Nov 6, 2026', BT.incomeDates({ frequency:'Weekly', first_payment_date:'2026-11-06' }, '2026-11'), ['2026-11-06','2026-11-13','2026-11-20','2026-11-27']);
+  check(G7, 'Weekly continues into Dec', BT.incomeDates({ frequency:'Weekly', first_payment_date:'2026-11-06' }, '2026-12'), ['2026-12-04','2026-12-11','2026-12-18','2026-12-25']);
+  check(G7, 'Weekly: nothing before first date', BT.incomeDates({ frequency:'Weekly', first_payment_date:'2026-11-06' }, '2026-10'), []);
+  check(G7, 'Bi-Weekly from Oct 30, 2026 → Jan 2027', BT.incomeDates({ frequency:'Bi-Weekly', first_payment_date:'2026-10-30' }, '2027-01'), ['2027-01-08','2027-01-22']);
+  check(G7, 'Quarterly from Jan 31 → Apr 30', BT.incomeDates({ frequency:'Quarterly', first_payment_date:'2026-01-31' }, '2026-04'), ['2026-04-30']);
+  check(G7, 'Quarterly: not in off months', BT.incomeDates({ frequency:'Quarterly', first_payment_date:'2026-01-31' }, '2026-05'), []);
+  check(G7, 'Annually from Dec 20, 2025 → Dec 2026', BT.incomeDates({ frequency:'Annually', first_payment_date:'2025-12-20' }, '2026-12'), ['2026-12-20']);
+  check(G7, 'Inactive source has no dates', BT.incomeDates(Object.assign({}, salary, { active:'No' }), '2026-11'), []);
+  const nov = BT.incomeForMonth([salary, com], '2026-11');
+  check(G7, 'Nov total uses actual for paid variable income', nov.total, 46200);
+  check(G7, 'Dec total uses estimate for variable income', BT.incomeForMonth([salary, com], '2026-12').total, 45000);
+  check(G7, 'Dec variable item flagged as estimate', BT.incomeForMonth([salary, com], '2026-12').items.filter(i=>i.estimated).length, 1);
+  check(G7, 'Next salary from Nov 25', BT.nextIncome(salary, '2026-11-25'), { date:'2026-11-30', amount:20000 });
+  check(G7, 'Next comisiones from Nov 25', BT.nextIncome(com, '2026-11-25'), { date:'2026-12-15', amount:5000 });
+
+  // ---- Calculations on a fixture
+  const G8 = 'Calculations';
+  const d = BT.defaultData();
+  d.Income = [salary, com];
+  const E = (id, date, category, pm, amount, extra={}) => { const e = Object.assign({ id, date, category, subcategory:'', description:id, payment_method:pm, amount, essential:'Yes', card_id: pm==='Credit Card' ? extra.card : '', status:'Counted', notes:'' }, extra); delete e.card; e.cash_date = BT.computeCashDate(e, d.Cards); return e; };
+  d.Expenses = [
+    E('super',  '2026-11-05','Supermercado','Debit Card',1000),
+    E('rest1',  '2026-10-24','Restaurantes','Credit Card',500,{card:'card_amex', essential:'No'}),
+    E('rest2',  '2026-10-20','Restaurantes','Credit Card',300,{card:'card_amex', essential:'No'}),
+    E('trans',  '2026-11-02','Transporte','Credit Card',200,{card:'card_bancomer'}),
+    E('fee',    '2026-11-10','Comisiones Bancarias','Debit Card',50),
+    E('xfer',   '2026-11-11','Transferencias','Bank Transfer',5000),
+    E('ccpay',  '2026-11-23','Pagos de Tarjeta','Debit Card',3000),
+    E('excl',   '2026-11-12','Compras','Debit Card',400,{status:'Excluded'}),
+    E('shop',   '2026-11-04','Compras','Credit Card',700,{card:'card_bancomer', essential:'No'}),
+    E('aug',    '2026-08-15','Restaurantes','Cash',100,{essential:'No'}),
+    E('feeOct', '2026-10-01','Comisiones Bancarias','Debit Card',999),
+  ];
+  d.Budget = [
+    { month:'2026-11', category:'Supermercado', planned:900 },
+    { month:'2026-11', category:'Restaurantes', planned:1000 },
+    { month:'2026-11', category:'Transporte', planned:210 },
+    { month:'2026-11', category:'Fondo de Emergencia', planned:2000 },
+    { month:'2026-11', category:'Diezmo', planned:4620 },
+  ];
+  check(G8, 'Cash dates assigned', d.Expenses.map(e=>e.cash_date).slice(0,5), ['2026-11-05','2026-12-12','2026-11-12','2026-11-23','2026-11-10']);
+  check(G8, 'Accrued by category, Nov (Counted only, no transfers/card payments)', BT.accruedByCategory(d,'2026-11'), { 'Supermercado':1000, 'Transporte':200, 'Comisiones Bancarias':50, 'Compras':700 });
+  check(G8, 'Accrued total, Nov (excludes bank fees)', BT.accruedTotal(d,'2026-11'), 1900);
+  check(G8, 'Accrued total, Oct (by purchase date)', BT.accruedTotal(d,'2026-10'), 800);
+  check(G8, 'Cash flow, Nov (by cash_date; bank fees included)', BT.cashFlowTotal(d,'2026-11'), 1550);
+  check(G8, 'Cash flow, Dec', BT.cashFlowTotal(d,'2026-12'), 1200);
+  const br = BT.cashFlowBreakdown(d,'2026-11').map(g => g.type==='card' ? `${g.cardName}, ${BT.dayMonth(g.date)}: ${BT.money(g.amount)}, window ${g.window}` : `${g.method}: ${BT.money(g.amount)}`);
+  check(G8, 'Cash flow breakdown, Nov', br, ['Amex, 12 de noviembre: $300.00, window 11–13', 'Bancomer, 23 de noviembre: $200.00, window 23', 'Debit Card: $1,050.00']);
+  check(G8, 'Planned savings, Nov', BT.plannedSavings(d,'2026-11'), 6620);
+  const s = BT.monthSummary(d,'2026-11');
+  check(G8, 'Income, Nov', s.income, 46200);
+  check(G8, 'Unallocated = income − cash flow − planned savings', s.unallocated, 46200 - 1550 - 6620);
+  check(G8, 'Savings rate', Math.round(s.savingsRate*10000)/10000, Math.round((46200-1550)/46200*10000)/10000);
+  check(G8, 'Bank fees total, Nov', s.bankFees, 50);
+  check(G8, 'Essential split, Nov', BT.essentialSplit(d,'2026-11'), { essential:1200, nonEssential:700 });
+  check(G8, '3-month avg Restaurantes for Nov (Aug–Oct)', BT.avg3(d,'2026-11','Restaurantes'), 300);
+  check(G8, '3-month avg Restaurantes for Dec (Sep–Nov)', BT.avg3(d,'2026-12','Restaurantes'), 266.67);
+  check(G8, '3-month avg excludes Bank Fees', BT.avg3(d,'2026-11','Comisiones Bancarias'), null);
+  check(G8, '3-month avg excludes Transfers', BT.avg3(d,'2026-11','Transferencias'), null);
+  check(G8, '3-month avg excludes Credit Card Payments', BT.avg3(d,'2026-11','Pagos de Tarjeta'), null);
+  check(G8, 'Budget status: 79% → none', BT.budgetStatus(100, 79), '');
+  check(G8, 'Budget status: 80% → amber', BT.budgetStatus(100, 80), 'amber');
+  check(G8, 'Budget status: 100% → amber', BT.budgetStatus(100, 100), 'amber');
+  check(G8, 'Budget status: over → red', BT.budgetStatus(100, 100.01), 'red');
+  check(G8, 'Budget status: unplanned spending → red', BT.budgetStatus(0, 5), 'red');
+
+  // ---- Advice
+  const G9 = 'Advice (rule-based)';
+  const adv = BT.advice(d, '2026-11', '2026-11-25').map(a => a.text);
+  ok(G9, 'Flags Supermercado over plan', adv.some(t => t.startsWith('Supermercado is over plan by $100.00')), adv.find(t=>t.startsWith('Supermercado')));
+  ok(G9, 'Flags Transporte near plan (95%)', adv.some(t => t.startsWith('Transporte is at 95% of plan')), adv.find(t=>t.startsWith('Transporte')));
+  ok(G9, 'Expected Amex payment next month by cash_date', adv.some(t => t.includes('Expected Amex payment on 12 de diciembre: $500.00 (window 11–13)')), adv.find(t=>t.includes('Amex')));
+  ok(G9, 'Expected Bancomer payment next month', adv.some(t => t.includes('Expected Bancomer payment on 23 de diciembre: $700.00')), adv.find(t=>t.includes('Bancomer')));
+  ok(G9, 'Compares next month income vs expected cash flow', adv.some(t => t.startsWith('Next month (diciembre de 2026): income $45,000.00')), adv.find(t=>t.startsWith('Next month')));
+  ok(G9, 'Mentions bank fees', adv.some(t => t.includes('$50.00 in bank fees')));
+  ok(G9, 'Pace line present', adv.some(t => t.startsWith('Overall pace')), adv.find(t=>t.startsWith('Overall')));
+
+  // ---- Sheet rows & CSV backup
+  const G10 = 'Sheet rows & CSV backup';
+  const rows = [BT.TABLES.Expenses, BT.toRowArray('Expenses', d.Expenses[0])];
+  check(G10, 'Sheet row round trip', BT.rowsToObjects('Expenses', rows)[0].amount, 1000);
+  const incRow = BT.toRowArray('Income', com);
+  check(G10, 'Income actuals stored as JSON in sheet', BT.rowsToObjects('Income', [BT.TABLES.Income, incRow])[0].actuals, { '2026-11-15': 6200 });
+  check(G10, 'Last 4 only: "1234 5678 9012 3456" → "3456"', BT.normalizeRow('Cards', { last4:'1234 5678 9012 3456' }).last4, '3456');
+  d.Expenses[0].description = 'Walmart, "Súper" \n línea 2';
+  const csv = BT.exportCSV(d);
+  const back = BT.importCSV(csv);
+  check(G10, 'CSV round trip: expense count', back.Expenses.length, d.Expenses.length);
+  check(G10, 'CSV round trip: commas, quotes, newlines, accents', back.Expenses[0].description, 'Walmart, "Súper" \n línea 2');
+  check(G10, 'CSV round trip: amounts are numbers', back.Expenses.map(e=>e.amount), d.Expenses.map(e=>e.amount));
+  check(G10, 'CSV round trip: income actuals', back.Income[1].actuals, { '2026-11-15': 6200 });
+  check(G10, 'CSV round trip: categories incl. accents', back.Categories.map(c=>c.name), d.Categories.map(c=>c.name));
+  let threw = false; try { BT.importCSV('a,b\n1,2'); } catch { threw = true; }
+  ok(G10, 'Rejects a CSV that is not a backup', threw);
+  const merged = BT.mergeData({ Expenses:[{id:'1'}], Categories:[{name:'A'}] }, { Expenses:[{id:'1'},{id:'2'}], Categories:[{name:'A'},{name:'B'}] });
+  check(G10, 'Merge local into an existing sheet (no duplicates)', { e: merged.Expenses.map(x=>x.id), c: merged.Categories.map(x=>x.name) }, { e:['1','2'], c:['A','B'] });
+
+  // ---- Defaults (no personal data)
+  const G11 = 'Default setup';
+  const def = BT.defaultData();
+  check(G11, '15 categories + 4 savings lines', def.Categories.length, 19);
+  check(G11, 'Bancomer rules 3 / 23 / 0, empty balance & last 4', (({cutoff_day,payment_day,payment_window_days,last4,statement_balance})=>({cutoff_day,payment_day,payment_window_days,last4,statement_balance}))(def.Cards[0]), { cutoff_day:3, payment_day:23, payment_window_days:0, last4:'', statement_balance:'' });
+  check(G11, 'Amex rules 23 / 12 / 1, empty balance & last 4', (({cutoff_day,payment_day,payment_window_days,last4,statement_balance})=>({cutoff_day,payment_day,payment_window_days,last4,statement_balance}))(def.Cards[1]), { cutoff_day:23, payment_day:12, payment_window_days:1, last4:'', statement_balance:'' });
+  check(G11, 'Comisiones starts at $0, variable, 15th', (({amount,variable,payment_days})=>({amount,variable,payment_days}))(def.Income[1]), { amount:0, variable:'Yes', payment_days:'15' });
+  check(G11, 'Salary on the 15th and 30th', def.Income[0].payment_days, '15,30');
+  check(G11, 'No expenses or budget seeded', [def.Expenses.length, def.Budget.length], [0,0]);
+
+  // ---- Render
+  const passed = results.filter(r=>r.pass).length;
+  document.getElementById('out').innerHTML = results.map(r => `<tr><td>${r.group}</td><td>${r.name}</td><td class="${r.pass?'pass':'fail'}">${r.pass?'✔ PASS':'✘ FAIL'}<br><code>${String(r.detail).replace(/</g,'&lt;')}</code></td></tr>`).join('');
+  const sum = document.getElementById('sum');
+  sum.textContent = `${passed} / ${results.length} passed`;
+  sum.className = passed === results.length ? 'pass' : 'fail';
+  document.title = (passed === results.length ? 'PASS ' : 'FAIL ') + passed + '/' + results.length;
+  window.__results = results;
+}
+document.getElementById('app').addEventListener('load', e => {
+  try { run(e.target.contentWindow.BT); }
+  catch (err) { document.getElementById('sum').textContent = 'Error: ' + err.message; document.title = 'ERROR'; window.__results = [{ group:'boot', name:'error', pass:false, detail: err.stack }]; }
+});
+</script>
+</body>
+</html>

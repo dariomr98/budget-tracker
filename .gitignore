@@ -1,0 +1,30 @@
+# Never commit personal data, exports, backups or credentials
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.ods
+*.json.bak
+*backup*
+*export*
+!sw.js
+data/
+exports/
+backups/
+.env
+.env.*
+*.pem
+*.key
+*credentials*
+*secret*
+*token*
+client_secret*.json
+service-account*.json
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+node_modules/
+test-results/
+screenshots/
